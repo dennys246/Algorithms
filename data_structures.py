@@ -1,4 +1,4 @@
-import random, time
+import random, math, time, hashlib
 
 
 # ------------------- Hash Table ---------------------------------#
@@ -29,51 +29,247 @@ import random, time
 # pathological data set is impossible to reverse engineer or at minimum very ineffective.
 
 
-class OAHashTable: # Open addressing is the way of resolving collisions in this class - Less memory required to utilize
-	def __init__(self, size):
-		n = size*2
+class UniversalHashTable: # Open addressing is the way of resolving collisions in this class - Less memory required to utilize
+	def __init__(self, data = None):
+		self.min_fill = float(1/3)
+		self.max_fill = float(2/3)
+
+		self.size = 0
+		self.capacity = 2
+
+		self.collision_count = 0
+
+		self.primes = self.find_primes(1, 100)
+		self.a = random.sample(self.primes, 1)[0]
+		self.b = random.sample(self.primes, 1)[0]
+		self.c = random.sample(self.primes, 1)[0]
+		self.d = random.sample(self.primes, 1)[0]
+
+		self.constant = random.uniform(0, 1)
+
+		self.hasher = lambda key : self.sha3(key)
+		self.prober = lambda key, hashkey : self.quad_probe(key, hashkey)
+
+		self.table = [None]*self.capacity
+
+		self.fill()
+
+		self.double_check()
+
 
 	def __repr__(self):
+		return f"HashTable with {self.capacity} capacity {(self.size/self.capacity)*100}% full - {(self.collision_count/self.size)*100}% Collision Rate"
 
-	def insert(self, key):
+	def fill(self, data = None, replace = True):
+		if self.size != 0 and replace == True: # If data has already been added to the table, reset param/variables
+			self.size = 0
+			self.capacity = 2
+			self.collision_count = 0
 
-	def delete(self, key):
+			self.table = [None]*self.capacity
+
+		self.data = data
+		if self.data == None: self.data = [self.random_ip() for ip in range(100000)]
+
+		for datum in self.data:
+			self.add(datum)
+
+		self.__repr__()
+
+	# ------------- Hash Table Hash Functions --------------- #
+	# Obsolete Hash Functions: MD5, SHA-1, SHA-2 (Not obsolete yet but a matter of time),
+	# 
+
+	def pyhash(self, key): # Uses a pythons inbuilt hash function which utilitzes SipHash
+		return hash(key) % self.capacity # Utilizes Add-Block-XOR Block Cipher
+
+	def sha2(self, key): # Secure Hash Algorithm 2 - Somewhat secure but most likely vulnerable
+		return int.from_bytes(hashlib.sha512(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
+
+	def sha3(self, key): # Secure Hash Algorithm 3
+		return int.from_bytes(hashlib.sha3_512(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
+
+	def blake2(self, key, subhash = 's'):
+		if subhash == 's':
+			return int.from_bytes(hashlib.blake2s(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
+		if subhash == 'b':
+			return int.from_bytes(hashlib.blake2b(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
+
+	def linear_hash(self, key): # Don't think this is a real hash function
+		key = self.to_bytes(key)
+		return (self.a*key + self.b)%self.capacity
+
+	def division_hash(self, key):
+		key = self.to_bytes(key)
+		return key % self.capacity
+
+	def multiplication_hash(self, key): 
+		key = self.to_bytes(key)
+		return math.floor(self.capacity*((key*self.constant) % 1))
+
+
+
+	# ------------ Hash Table Collision Probes -------------- #
+	
+	def linear_probe(self, key, hashkey): # Probing function used for linear hashing
+		self.collision_count += 1
+		return (3*hashkey + 1) % self.capacity 
+
+	def quad_probe(self, key, hashkey): # Probing function used for quadratic probing
+		hashkey = self.hasher(key) + (self.quad_mult**2) # WARNING: This function does not seem to be working properly
+		self.collision_count += 1 
+		self.quad_mult += 1
+		return hashkey % self.capacity
+
+	def double_probe(self, key, hashkey):
+		return
+
+	# ------------- Core Hash Table Functions ------------- #
+
+	def add(self, key):
+		fill = float(self.size/self.capacity)
+		if self.min_fill > fill or fill > self.max_fill:
+			self.resize()
+		hashkey = self.hasher(key)
+		while self.table[hashkey] is not None:
+			if self.table[hashkey] == key: # If the key already exists in the table
+				return # Return
+			hashkey = self.prober(key, hashkey)
+			if self.table[hashkey] == '!tombstone!':
+				break
+		self.table[hashkey] = key # insert the new key into the found hash
+		self.size += 1 # Increment size
+		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
+
+
+	def remove(self, key):
+		hashkey = self.hasher(key)
+		while self.table[hashkey]:
+			if self.table[hashkey] == key:
+				self.table[hashkey] = '!tombstone!'
+				self.size -= 1
+				return
+			hashkey = self.prober(key, hashkey)
+		if self.min_fill > float(self.size/self.capacity):
+			self.resize()
+		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
+
 
 	def search(self, key):
+		hashkey = self.hasher(key)
+		while self.table[hashkey] is not None:
+			if self.table[hashkey] == key:
+				return True
+			hashkey = self.prober(key, hashkey)
+		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
+		return False
 
-class UniversalHashTable: # Using chaining to resolve collisions, Easier deletion process
+	def resize(self):
+		fill = float(self.size/self.capacity)
+		old_capacity = self.capacity
+		if self.min_fill > fill:
+			self.capacity >>= 1
+			print(f"Table below minimum fill, decreasing capacity to {self.capacity}")
+		else:
+			self.capacity <<= 1
+			print(f"Table exceeding maximum fill, increasing capacity to {self.capacity}")
+		new_table = [None]*self.capacity
+		for ind in range(old_capacity):
+			if self.table[ind] and self.table[ind] != '!tombstone!':
+				position = self.hasher(self.table[ind])
+				while new_table[position] is not None:
+					position = self.prober(self.table[ind], position)
+				new_table[position] = self.table[ind]
+		self.table = new_table
+
+	# ----------------- Excess Functions ----------------- #
+
+	def random_ip(self):
+		IP = ''
+		for f_ind in range(4):
+			for s_ind in range(4):
+				IP += str(random.randint(0, 9))
+			if f_ind < 3:
+				IP += '-'
+		return IP
+
+	def find_primes(self, start = 1, end = 100):
+		primes = []
+		for x in range(100):
+			if x <= 1: continue
+			for i in range(2, x):
+				if x%i == 0:
+					break
+			else: primes.append(x)
+		return primes
+
+	def next_prime(self, start):
+		for x in range(start, start + 1000):
+			if x <= 1: continue
+			for i in range(2, start):
+				if x%i == 0:
+					break
+			else: return x
+		return None
+
+	def to_bytes(self, string, encoding = 'utf-8'):
+		return sum(bytes(string, encoding))
+
+	def split(self, key):
+		return [char for char in key]
+
+	def double_check(self):
+		found = 0
+		for datum in self.data:
+			if self.search(datum) == True:
+				found += 1
+		print(f"Double check found {(found/self.size)*100}% of data added")
+
+
+
+class OAHashTable: # Using chaining to resolve collisions, Easier deletion process
 	def __init__(self, size):
-		n = size*2
-		# Contruct
+		self.max_fill = float(2/3)
+		self.min_fill = float(1/3)
 
-	def __repr__(self):
+		self.size = 0
+		self.capacity = 2
+
+		self.table = [None]*8
+
+	# def __repr__(self):
 
 	def insert(self, key):
-		# Insert value in the front of the bucket opposed to appending to the end
-
+		return # Insert value in the front of the bucket opposed to appending to the end
 
 	def delete(self, key):
+		return
 
 	def search(self, key):
+		return
 
 
 # -------------------- Bloom Filter ----------------------------#
 # Similar to a hash structure but lighter and faster, uses very small amount of memory
 # and very fast inserts and lookups. The cons are that it can't store an associated
 # object, cannot delete (some variants that do allow for deletions but complex)
-# and they is a small false positive probability (however no posibility of false negative).
+# and their is a small false positive probability (however no posibility of false negative).
 #
 # Possible applications: Spellcheckers, assessing for too weak passwords, software on network
 # routers that transfer packets of data (huge budget on space obviously and need fast data structure)
 
 class BloomFilter:
 	def __init__(self):
+		return
 
-	def __repr(self):
+	def __repr__(self):
+		return 'something'
 
 	def insert(self, value):
+		return
 
 	def search(self, value):
+		return
 
 
 # -------------------- Vanilla Binary Search Tree ---------------------#
