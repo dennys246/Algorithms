@@ -29,8 +29,9 @@ import random, math, time, hashlib
 # pathological data set is impossible to reverse engineer or at minimum very ineffective.
 
 
+
 class UniversalHashTable: # Open addressing is the way of resolving collisions in this class - Less memory required to utilize
-	def __init__(self, data = None):
+	def __init__(self, data = None, empty = False):
 		self.min_fill = float(1/3)
 		self.max_fill = float(2/3)
 
@@ -39,7 +40,7 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 
 		self.collision_count = 0
 
-		self.primes = self.find_primes(1, 100)
+		self.primes = find_primes(1, 10)
 		self.a = random.sample(self.primes, 1)[0]
 		self.b = random.sample(self.primes, 1)[0]
 		self.c = random.sample(self.primes, 1)[0]
@@ -48,19 +49,74 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		self.constant = random.uniform(0, 1)
 
 		self.hasher = lambda key : self.sha3(key)
-		self.prober = lambda key, hashkey : self.quad_probe(key, hashkey)
+		self.prober = lambda key, hashkey : self.linear_probe(key, hashkey)
 
 		self.table = [None]*self.capacity
 
-		self.fill()
 
-		self.double_check()
-
+        self.fill(data = data, empty = empty)
+		if empty == False:
+			self.double_check()
 
 	def __repr__(self):
 		return f"HashTable with {self.capacity} capacity {(self.size/self.capacity)*100}% full - {(self.collision_count/self.size)*100}% Collision Rate"
 
-	def fill(self, data = None, replace = True):
+	# ------------- Hash Table Hash Functions --------------- #
+	# Obsolete Hash Functions: MD5, SHA-1, SHA-2 (Not obsolete yet but a matter of time),
+
+	def pyhash(self, key): # Uses a pythons inbuilt hash function which utilitzes SipHash
+		# Avoid using this function for times when you have a lot of very close
+		# values, especially integers, being inserted into a hash table to avoid primary clustering
+		return hash(key) % self.capacity # Utilizes Add-Block-XOR Block Cipher
+
+	def sha2(self, key): # Secure Hash Algorithm 2 - AVOID USING - Somewhat secure but most likely vulnerable
+		return int.from_bytes(hashlib.sha512(self.encode(key)).digest(), 'little') % self.capacity
+
+	def sha3(self, key): # Secure Hash Algorithm 3
+		return int.from_bytes(hashlib.sha3_512(self.encode(key)).digest(), 'little') % self.capacity
+
+	def blake2(self, key, subhash = 's'):
+		if subhash == 's':
+			return int.from_bytes(hashlib.blake2s(self.encode(key)).digest(), 'little') % self.capacity
+		if subhash == 'b':
+			return int.from_bytes(hashlib.blake2b(self.encode(key)).digest(), 'little') % self.capacity
+
+	def linear_hash(self, key): # Don't think this is a real hash function
+		return (self.a*sum(self.encode(key)) + self.b) % self.capacity
+
+	def division_hash(self, key):
+		return sum(self.encode(key)) % self.capacity
+
+	def multiplication_hash(self, key):
+		return math.floor(self.capacity*((sum(self.encode(key))*self.constant) % 1))
+
+	def encode(self, key):
+		return bytes(str(key), 'utf-8')
+
+	# ------------ Hash Table Collision Probes -------------- #
+
+	def linear_probe(self, key, hashkey, increment = True): # Probing function used for linear hashing
+		self.collision_count += 1
+		self.probe_count += 1
+		return (5*hashkey + 1) % self.capacity
+		#return (hashkey + 1) % self.capacity
+
+	def quad_probe(self, key, hashkey, increment = True): # Probing function used for quadratic probing
+		self.collision_count += 1
+		self.probe_count += 1
+		#hashkey = hashkey + (self.a*self.probe_count) + (self.b*(self.probe_count**2))
+		hashkey = hashkey + (self.probe_count**2)
+		return hashkey % self.capacity
+
+	def double_probe(self, key, hashkey):
+		self.collision_count += 1
+		self.probe_count += 1
+		hashkey = self.linear_probe(key, hashkey, False) + self.probe_count*self.quad_probe(key, hashkey, False)
+		return hashkey % self.capacity
+
+	# ------------- Core Hash Table Functions ------------- #
+
+	def fill(self, data = None, replace = True, empty = False):
 		if self.size != 0 and replace == True: # If data has already been added to the table, reset param/variables
 			self.size = 0
 			self.capacity = 2
@@ -69,62 +125,13 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 			self.table = [None]*self.capacity
 
 		self.data = data
-		if self.data == None: self.data = [self.random_ip() for ip in range(100000)]
-
-		for datum in self.data:
-			self.add(datum)
-
-		self.__repr__()
-
-	# ------------- Hash Table Hash Functions --------------- #
-	# Obsolete Hash Functions: MD5, SHA-1, SHA-2 (Not obsolete yet but a matter of time),
-	# 
-
-	def pyhash(self, key): # Uses a pythons inbuilt hash function which utilitzes SipHash
-		return hash(key) % self.capacity # Utilizes Add-Block-XOR Block Cipher
-
-	def sha2(self, key): # Secure Hash Algorithm 2 - Somewhat secure but most likely vulnerable
-		return int.from_bytes(hashlib.sha512(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
-
-	def sha3(self, key): # Secure Hash Algorithm 3
-		return int.from_bytes(hashlib.sha3_512(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
-
-	def blake2(self, key, subhash = 's'):
-		if subhash == 's':
-			return int.from_bytes(hashlib.blake2s(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
-		if subhash == 'b':
-			return int.from_bytes(hashlib.blake2b(bytes(key, 'utf-8')).digest(), 'little') % self.capacity
-
-	def linear_hash(self, key): # Don't think this is a real hash function
-		key = self.to_bytes(key)
-		return (self.a*key + self.b)%self.capacity
-
-	def division_hash(self, key):
-		key = self.to_bytes(key)
-		return key % self.capacity
-
-	def multiplication_hash(self, key): 
-		key = self.to_bytes(key)
-		return math.floor(self.capacity*((key*self.constant) % 1))
-
-
-
-	# ------------ Hash Table Collision Probes -------------- #
-	
-	def linear_probe(self, key, hashkey): # Probing function used for linear hashing
-		self.collision_count += 1
-		return (3*hashkey + 1) % self.capacity 
-
-	def quad_probe(self, key, hashkey): # Probing function used for quadratic probing
-		hashkey = self.hasher(key) + (self.quad_mult**2) # WARNING: This function does not seem to be working properly
-		self.collision_count += 1 
-		self.quad_mult += 1
-		return hashkey % self.capacity
-
-	def double_probe(self, key, hashkey):
-		return
-
-	# ------------- Core Hash Table Functions ------------- #
+		if self.data == None and empty == False: self.data = [random_ip() for ip in range(100000)]
+		if self.data != None:
+			for datum in self.data:
+				self.add(datum)
+			self.__repr__()
+		else:
+			print('Empty universal hash table initialized')
 
 	def add(self, key):
 		fill = float(self.size/self.capacity)
@@ -133,27 +140,13 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		hashkey = self.hasher(key)
 		while self.table[hashkey] is not None:
 			if self.table[hashkey] == key: # If the key already exists in the table
-				return # Return
+				return# Return
+			if self.table[hashkey] == '!tombstone!': # If a tombstone was found
+				break # Replace tombstone
 			hashkey = self.prober(key, hashkey)
-			if self.table[hashkey] == '!tombstone!':
-				break
 		self.table[hashkey] = key # insert the new key into the found hash
 		self.size += 1 # Increment size
-		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
-
-
-	def remove(self, key):
-		hashkey = self.hasher(key)
-		while self.table[hashkey]:
-			if self.table[hashkey] == key:
-				self.table[hashkey] = '!tombstone!'
-				self.size -= 1
-				return
-			hashkey = self.prober(key, hashkey)
-		if self.min_fill > float(self.size/self.capacity):
-			self.resize()
-		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
-
+		self.probe_count = 0 # Reset
 
 	def search(self, key):
 		hashkey = self.hasher(key)
@@ -161,8 +154,20 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 			if self.table[hashkey] == key:
 				return True
 			hashkey = self.prober(key, hashkey)
-		self.quad_mult = 1 # Reset the quadratic multiplier probe for the next call
+		self.probe_count = 0 # Reset the quadratic multiplier probe for the next call
 		return False
+
+	def remove(self, key):
+		hashkey = self.hasher(key)
+		while self.table[hashkey]:
+			if self.table[hashkey] == key:
+				self.table[hashkey] = '!tombstone!'
+				self.size -= 1
+				break
+			hashkey = self.prober(key, hashkey)
+		if self.min_fill > float(self.size/self.capacity): # If table is bellow minimum fill
+			self.resize() # resize
+		self.probe_count = 0 # Reset the quadratic multiplier probe for the next call
 
 	def resize(self):
 		fill = float(self.size/self.capacity)
@@ -183,41 +188,6 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		self.table = new_table
 
 	# ----------------- Excess Functions ----------------- #
-
-	def random_ip(self):
-		IP = ''
-		for f_ind in range(4):
-			for s_ind in range(4):
-				IP += str(random.randint(0, 9))
-			if f_ind < 3:
-				IP += '-'
-		return IP
-
-	def find_primes(self, start = 1, end = 100):
-		primes = []
-		for x in range(100):
-			if x <= 1: continue
-			for i in range(2, x):
-				if x%i == 0:
-					break
-			else: primes.append(x)
-		return primes
-
-	def next_prime(self, start):
-		for x in range(start, start + 1000):
-			if x <= 1: continue
-			for i in range(2, start):
-				if x%i == 0:
-					break
-			else: return x
-		return None
-
-	def to_bytes(self, string, encoding = 'utf-8'):
-		return sum(bytes(string, encoding))
-
-	def split(self, key):
-		return [char for char in key]
-
 	def double_check(self):
 		found = 0
 		for datum in self.data:
@@ -225,28 +195,139 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 				found += 1
 		print(f"Double check found {(found/self.size)*100}% of data added")
 
-
-
 class OAHashTable: # Using chaining to resolve collisions, Easier deletion process
-	def __init__(self, size):
-		self.max_fill = float(2/3)
+	def __init__(self, data = None, empty = False):
 		self.min_fill = float(1/3)
+		self.max_fill = float(2/3)
 
 		self.size = 0
 		self.capacity = 2
 
-		self.table = [None]*8
+		self.collision_count = 0
 
-	# def __repr__(self):
+		self.primes = find_primes(1, 10)
+		self.a = random.sample(self.primes, 1)[0]
+		self.b = random.sample(self.primes, 1)[0]
+		self.c = random.sample(self.primes, 1)[0]
+		self.d = random.sample(self.primes, 1)[0]
 
-	def insert(self, key):
-		return # Insert value in the front of the bucket opposed to appending to the end
+		self.constant = random.uniform(0, 1)
 
-	def delete(self, key):
-		return
+		self.hasher = lambda key : self.pyhash(key)
+
+		self.table = [[]]*self.capacity
+
+
+		self.fill(data = data, empty = empty)
+		if empty == False:
+			self.double_check()
+
+
+	def __repr__(self):
+		return f"HashTable with {self.capacity} capacity {(self.size/self.capacity)*100}% full - {(self.collision_count/self.size)*100}% Collision Rate"
+
+	def fill(self, data = None, replace = True, empty = False):
+		if self.size != 0 and replace == True: # If data has already been added to the table, reset param/variables
+			self.size = 0
+			self.capacity = 2
+			self.collision_count = 0
+
+			self.table = [[]]*self.capacity
+
+		self.data = data
+		if self.data == None and empty == False: self.data = [random_ip() for ip in range(100000)]
+		if self.data != None:
+			for datum in self.data:
+				self.add(datum)
+
+		else:
+			print('Empty universal hash table initialized')
+
+	# ------------- Hash Table Hash Functions --------------- #
+	# Obsolete Hash Functions: MD5, SHA-1, SHA-2 (Not obsolete yet but a matter of time),
+
+	def encode(self, key):
+		return bytes(str(key), 'utf-8')
+
+	def pyhash(self, key): # Uses a pythons inbuilt hash function which utilitzes SipHash
+		return hash(key) % self.capacity # Utilizes Add-Block-XOR Block Cipher
+
+	def sha2(self, key): # Secure Hash Algorithm 2 - Somewhat secure but most likely vulnerable
+		return int.from_bytes(hashlib.sha512(self.encode(key)).digest(), 'little') % self.capacity
+
+	def sha3(self, key): # Secure Hash Algorithm 3
+		return int.from_bytes(hashlib.sha3_512(self.encode(key)).digest(), 'little') % self.capacity
+
+	def blake2(self, key, subhash = 's'):
+		if subhash == 's':
+			return int.from_bytes(hashlib.blake2s(self.encode(key)).digest(), 'little') % self.capacity
+		if subhash == 'b':
+			return int.from_bytes(hashlib.blake2b(self.encode(key)).digest(), 'little') % self.capacity
+
+	def linear_hash(self, key): # Don't think this is a real hash function
+		return (self.a*self.encode(key) + self.b) % self.capacity
+
+	def division_hash(self, key):
+		return self.encode(key) % self.capacity
+
+	def multiplication_hash(self, key):
+		return math.floor(self.capacity*((self.encode(key)*self.constant) % 1))
+
+
+
+	# ------------- Core Hash Table Functions ------------- #
+
+	def add(self, key):
+		self.size += 1 # Increment size
+		fill = float(self.size/self.capacity)
+		if self.min_fill > fill or fill > self.max_fill:
+			self.resize()
+		hashkey = self.hasher(key)
+		if key in self.table[hashkey]:
+			return None
+		else:
+			self.table[hashkey].append(key)
+		return key
+
+
+	def remove(self, key):
+		hashkey = self.hasher(key)
+		if key in self.table[hashkey]:
+			self.table[hashkey].remove(key)
+			self.size -= 1
+		if self.min_fill > float(self.size/self.capacity):
+			self.resize()
 
 	def search(self, key):
-		return
+		hashkey = self.hasher(key)
+		if key in self.table[hashkey]:
+			return True
+		else:
+			return False
+
+	def resize(self):
+		fill = float(self.size/self.capacity)
+		old_capacity = self.capacity
+		if self.min_fill > fill:
+			self.capacity >>= 1
+			print(f"Table below minimum fill, decreasing capacity to {self.capacity}")
+		else:
+			self.capacity <<= 1
+			print(f"Table exceeding maximum fill, increasing capacity to {self.capacity}")
+		new_table = [[]]*self.capacity
+		for data in self.table:
+			for datum in data:
+				if datum != '!tombstone!' and datum != None:
+					hashkey = self.hasher(datum)
+					new_table[hashkey].append(datum)
+		self.table = new_table
+
+	def double_check(self):
+		found = 0
+		for datum in self.data:
+			if self.search(datum) == True:
+				found += 1
+		print(f"Double check found {(found/self.size)*100}% of data added")
 
 
 # -------------------- Bloom Filter ----------------------------#
@@ -276,7 +357,6 @@ class BloomFilter:
 # This vanilla binary search tree is a plain binary with all of the associated functions
 # that can normally be performed on a binary search tree. Has the potential to
 # not be well formed (i.e. a long single chain) causing long run times on occasionale
-# Should really only use if the
 class BinaryTree:
 	def __init__(self, values = None):
 		if values == None: values = random.sample(range(1, 10), 9)
@@ -362,7 +442,7 @@ class BinaryTree:
 		print(tree.value)
 		if tree.right != None:
 			self.traverse(tree.right)
-		return
+		return tree.value
 
 	def delete(self, value = None, node = None): # O(Height)
 		if node == None: node = self.search(value)
@@ -503,7 +583,7 @@ class MinHeap:
 		for value in values:
 			self.insert(value)
 
-	def extract_min(self): # Function has high constant and could be simplified
+	def extract_min(self): # Function probably has high constant and could be simplified
 		if len(self.heap) == 0: return None
 		self.heap[0], self.heap[-1] = self.heap[-1], self.heap[0]# Switch the first and last positions - Preserves structure
 		min = self.heap.pop() # Pop mininimum value now at the end of the heap
@@ -514,8 +594,9 @@ class MinHeap:
 			first_child = self.heap[(position << 1) - 1] # Grab the first child
 			if (position << 1) < len(self.heap): second_child = self.heap[(position << 1)] # If there is a second child grab it
 			else: second_child = float('inf') # Else declare the second child as infinity
-			if first_child > value and second_child > value: break # If the heap property has been restored break loop
-			if first_child < second_child and first_child < value: # If first child is bigger than second child and larger than the value of interest
+			#print(f"{position} --> {position << 1} - {first_child} brother of {second_child} - {value} value")
+			if first_child >= value and second_child >= value: break # If the heap property has been restored break loop
+			if first_child <= second_child and first_child < value: # If first child is bigger than second child and larger than the value of interest
 				self.heap[(position << 1) - 1], self.heap[position - 1] = self.heap[position - 1], self.heap[(position << 1) - 1] # Swap value of interest and first child
 				position = (position << 1) # Srt new position of value of interest
 			if first_child > second_child and second_child < value: # If second child is larger and the value is larger than the value of interest
@@ -562,8 +643,9 @@ class MaxHeap:
 			first_child = self.heap[(position << 1) - 1] # Grab the first child
 			if (position << 1) < len(self.heap): second_child = self.heap[(position << 1)] # If there is a second child grab it
 			else: second_child = float('-inf') # Else declare the second child as negative infinity
-			if first_child < value and second_child < value: break # If the heap property has been restored break loop
-			if first_child > second_child and first_child > value: # If first child is bigger than second child and larger than the value of interest
+			if first_child <= value and second_child <= value: break # If the heap property has been restored break loop
+			#print(f"First Child {first_child} - Second Child {second_child} - Value {value}")
+			if first_child >= second_child and first_child > value: # If first child is bigger than second child and larger than the value of interest
 				self.heap[(position << 1) - 1], self.heap[position - 1] = self.heap[position - 1], self.heap[(position << 1) - 1] # Swap value of interest and first child
 				position = (position << 1) # Srt new position of value of interest
 			if first_child < second_child and second_child > value: # If second child is larger and the value is larger than the value of interest
@@ -627,3 +709,123 @@ def load_assignment():
 	data.pop()
 	data = [int(datum) for datum in data]
 	return data
+
+# ----------------- Excess Functions ----------------- #
+
+def random_ip():
+	IP = ''
+	for f_ind in range(4):
+		for s_ind in range(4):
+			IP += str(random.randint(0, 9))
+		if f_ind < 3:
+			IP += '.'
+	return IP
+
+def find_primes(start = 1, end = 100):
+	primes = []
+	for x in range(100):
+		if x <= 1: continue
+		for i in range(2, x):
+			if x%i == 0:
+				break
+		else: primes.append(x)
+	return primes
+
+def next_prime(start):
+	for x in range(start, start + 1000):
+		if x <= 1: continue
+		for i in range(2, start):
+			if x%i == 0:
+				break
+		else: return x
+	return None
+
+def to_bytes(string, encoding = 'utf-8'):
+	return sum(bytes(string, encoding))
+
+def split(key):
+	return [char for char in key]
+
+
+def load_twosum_assignment(sort = True):
+	contents = open('2sum-prob.txt', 'r').read()
+	data = contents.split('\n')
+	data.pop()
+	data = [int(datum) for datum in data]
+	if sort == True: data.sort()
+	return data
+
+def assess_twosums_heaps(data = None, lower_bound = -10000, upper_bound = 10000):
+	# Working function to assess for pairs of numbers within a list that add up to t within a range
+	# Seems to run quickly and theoretically runs in O(n) with a O(n + t) space complexity,
+	# however the algorithms seems to have high constants and could be simplified
+	if data == None:
+		start = time.time()
+		data = load_twosum_assignment()
+		load_time = (time.time() - start)
+	else:
+		load_time = "N/A"
+
+	middle = int(len(data)/2)
+
+	start = time.time()
+	minheap = MinHeap(data[:middle])
+	min = minheap.extract_min()
+
+	maxheap = MaxHeap(data[(middle - 1):])
+	max = maxheap.extract_max()
+	heapify_time = (time.time() - start)
+
+
+	t_dic = {point: True for point in range(-10000, 10000)}
+
+	print(f'Data Loaded ({round(load_time, 5)} sec) and Heapified ({round(heapify_time, 5)} sec)... Running Assessment')
+
+	start = time.time()
+	distinct_pairs = 0
+	while max != None and min != None:
+		#print(f'Heap Length - {str(len(maxheap.heap))} - Min of {min} - Max of {max} - T of {max + min}')
+		if min == max: break
+		t = max + min
+		if t < lower_bound:
+			min = minheap.extract_min()
+		elif t > upper_bound:
+			max = maxheap.extract_max()
+		else:
+			if t_dic[t] == True:
+				distinct_pairs += 1
+				t_dic[t] = False
+				#print(f"Distinct pair ({max}, {min}) found adding to {t}")
+			min = minheap.extract_min()
+			if max + min > upper_bound:
+				minheap.insert(min)
+				max = maxheap.extract_max()
+	runtime = (time.time() - start)
+	print(f"2-Sum Script Complete - {distinct_pairs} Distinct Pairs Found ({round(runtime, 5)} sec)")
+
+def assess_twosums_tree(data = None, lower_bound = -10000, upper_bound = 10000):
+	if data == None:
+		start = time.time()
+		data = load_twosum_assignment(sort = False) # Load data without sorting to avoid tall binary tree
+		load_time = (time.time() - start)
+	else:
+		load_time = "N/A"
+
+	start = time.time()
+	tree = BinaryTree(data) #
+	binarizing_time = (time.time() - start)
+
+	t_uht = UniversalHashTable(data = range(-10000, 10001))
+	root = tree.root
+	smaller_branch = root.left
+	bigger_branch = root.left
+
+	while smaller_branch != None and bigger_branch != None:
+		t = bigger_branch.value + smaller_branch.value
+		if t < lower_bound: # Grab a bigger branch
+			bigger_branch = bigger_branch.right
+		elif t > upper_bound: # Grab a smaller branch
+			smaller_branch = smaller_branch.left
+		else:
+
+	return
