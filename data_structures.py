@@ -1,4 +1,4 @@
-import random, math, time, hashlib
+import random, math, time, string, hashlib, mmh3
 
 
 # ------------------- Hash Table ---------------------------------#
@@ -30,7 +30,7 @@ import random, math, time, hashlib
 
 
 
-class UniversalHashTable: # Open addressing is the way of resolving collisions in this class - Less memory required to utilize
+class HashTable: # Open addressing is the way of resolving collisions in this class - Less memory required to utilize
 	def __init__(self, data = None, empty = False):
 		self.min_fill = float(1/3)
 		self.max_fill = float(2/3)
@@ -41,24 +41,23 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		self.collision_count = 0
 
 		self.primes = find_primes(1, 10)
-		self.a = random.sample(self.primes, 1)[0]
+		self.a = random.sample(self.primes, 1)[0] # Find primes to be used in the hashing/probing
 		self.b = random.sample(self.primes, 1)[0]
 		self.c = random.sample(self.primes, 1)[0]
 		self.d = random.sample(self.primes, 1)[0]
 
 		self.constant = random.uniform(0, 1)
 
-		self.hasher = lambda key : self.sha3(key)
-		self.prober = lambda key, hashkey : self.linear_probe(key, hashkey)
+		self.hasher = lambda key : self.sha3(key) # lambda function for quickly switching between hashes for testing intial hash
+		self.prober = lambda key, hashkey : self.linear_probe(key, hashkey) # Lambda function for switching between hashed for testing probes
 
-		self.table = [None]*self.capacity
+		self.table = [None]*self.capacity # Declare hash table
 
-
-        self.fill(data = data, empty = empty)
+		self.fill(data, True, empty) # Call the fill function to add in all data
 		if empty == False:
-			self.double_check()
+			self.double_check() # Call the double check function to assess if all data was hashed correctly and can be located
 
-	def __repr__(self):
+	def __repr__(self): # Class callback for assessing current capactiy/fill/collision rate
 		return f"HashTable with {self.capacity} capacity {(self.size/self.capacity)*100}% full - {(self.collision_count/self.size)*100}% Collision Rate"
 
 	# ------------- Hash Table Hash Functions --------------- #
@@ -69,7 +68,7 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		# values, especially integers, being inserted into a hash table to avoid primary clustering
 		return hash(key) % self.capacity # Utilizes Add-Block-XOR Block Cipher
 
-	def sha2(self, key): # Secure Hash Algorithm 2 - AVOID USING - Somewhat secure but most likely vulnerable
+	def sha2(self, key): # Secure Hash Algorithm 2 - !!!!AVOID USING!!!! - Somewhat secure but most likely vulnerable
 		return int.from_bytes(hashlib.sha512(self.encode(key)).digest(), 'little') % self.capacity
 
 	def sha3(self, key): # Secure Hash Algorithm 3
@@ -81,7 +80,7 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 		if subhash == 'b':
 			return int.from_bytes(hashlib.blake2b(self.encode(key)).digest(), 'little') % self.capacity
 
-	def linear_hash(self, key): # Don't think this is a real hash function
+	def linear_hash(self, key): # Don't think this is a real hash function -- AVOID USING
 		return (self.a*sum(self.encode(key)) + self.b) % self.capacity
 
 	def division_hash(self, key):
@@ -195,7 +194,7 @@ class UniversalHashTable: # Open addressing is the way of resolving collisions i
 				found += 1
 		print(f"Double check found {(found/self.size)*100}% of data added")
 
-class OAHashTable: # Using chaining to resolve collisions, Easier deletion process
+class CHashTable: # Using chaining to resolve collisions, Easier deletion process
 	def __init__(self, data = None, empty = False):
 		self.min_fill = float(1/3)
 		self.max_fill = float(2/3)
@@ -273,8 +272,6 @@ class OAHashTable: # Using chaining to resolve collisions, Easier deletion proce
 	def multiplication_hash(self, key):
 		return math.floor(self.capacity*((self.encode(key)*self.constant) % 1))
 
-
-
 	# ------------- Core Hash Table Functions ------------- #
 
 	def add(self, key):
@@ -338,19 +335,59 @@ class OAHashTable: # Using chaining to resolve collisions, Easier deletion proce
 #
 # Possible applications: Spellcheckers, assessing for too weak passwords, software on network
 # routers that transfer packets of data (huge budget on space obviously and need fast data structure)
+#
+# Unusual relationship with size and performance
 
 class BloomFilter:
-	def __init__(self):
-		return
+	def __init__(self, size = 1000, hashes = 4):
+		self.size = size
+		self.hash_seeds = [random.randint(1, 100) for hash in range(hashes)]
+		self.hash = lambda value, seed : mmh3.hash128(value, seed)
+		self.table = [0]*self.size
 
 	def __repr__(self):
-		return 'something'
+		return f'Bloom Filter Size: {len(self.table)}'
 
-	def insert(self, value):
-		return
+	def test(self, size = 100):
+		self.table = [0]*self.size
+
+		passwords = self.random_passwords(count = size)
+		added = 0
+		found = 0
+		for password in passwords:
+			result = self.add(password)
+			if result == True: added += 1
+
+			result = self.search(password)
+			if result == True: found += 1
+		print('Passwords Added...')
+		print(f'Bloom Filter Insertion Failure Rate: {((size - added)/size)*100}% (size of {size}, {added} added)')
+		print(f'Bloom Filter False Negative Rate: {((size - found)/size)*100}% (size of {size}, {found} found)')
+
+		new_passwords = self.random_passwords(count = size)
+		not_found = 0
+		for password in new_passwords:
+			result = self.search(password)
+			if result == False:
+				not_found += 1
+		print(f'Bloom Filter False Positive Rate: {((size - not_found)/size)*100}% (size of {size}, {not_found} not found)')
+
+
+	def add(self, value):
+		insertion = False
+		for seed in self.hash_seeds:
+			ind = self.hash(value, seed) % self.size
+			if self.table[ind] == 0:
+				self.table[ind] = 1
+				insertion = True
+		return insertion
 
 	def search(self, value):
-		return
+		for seed in self.hash_seeds:
+			ind = self.hash(value, seed) % self.size
+			if self.table[ind] == 0:
+				return False
+		return True
 
 
 # -------------------- Vanilla Binary Search Tree ---------------------#
@@ -389,7 +426,7 @@ class BinaryTree:
 
 	def search(self, value):
 		node = self.root # Grab the root
-		while node != None and node.value != value: # While we haven't found the node and we haven't found a dead end
+		while node and node.value != value: # While we haven't found the node and we haven't found a dead end
 			if node.value > value: # If the value is smaller than the node
 				node = node.left # move down on left side of node
 			else: # Else if it's larger
@@ -500,41 +537,6 @@ class BinaryTree:
 			current_rank += node.left.size()
 		return current_rank
 
-	def rotate_left(self, child):
-		parent = child.parent
-		A = parent.left
-		B = child.left
-		C = child.right
-		parents_parent = parent.parent
-		if parents_parent == None: # If the parent is the root
-			self.root = child
-		elif parents_parent.left == parent:
-			parents_parent.left = child
-		else:
-			parents_parent.right = child
-		child.left = parent
-		child.right = C
-		parent.left = A
-		parent.right = B
-		return
-
-	def rotate_right(self, child):
-		parent = child.parent
-		A = parent.right
-		B = child.left
-		C = child.right
-		parents_parent = parent.parent
-		if parents_parent == None:
-			self.root = child
-		elif parents_parent.left == parent:
-			parents_parent.left = child
-		else:
-			parents_parent.right = child
-		child.right = parent
-		child.left = A
-		parent.left = B
-		parent.right = C
-		return
 
 class Node:
 	def __init__(self, parent, value):
@@ -543,11 +545,12 @@ class Node:
 		self.left = None
 		self.right = None
 
-
 	def __repr__(self):
 		return f"Node Value: {self.value}"
 
 	def size(self):
+		if self.value == None:
+			return 0
 		size = 1
 		if self.left != None:
 			size += self.left.size()
@@ -555,6 +558,131 @@ class Node:
 			size += self.right.size()
 		return size
 
+
+# ------------------------- Red-Black Tree -----------------------------#
+
+class RBTree(BinaryTree):
+	def __init__(self, values = None):
+		self.nil = RBNode()
+		self.nil.red = False
+		self.root = self.nil
+		if values:
+			if type(values) != list: values = [values]
+			for value in values:
+				self.insert(value)
+
+	def insert(self, value):
+		last_pointer = None
+		pointer = self.root
+
+		node = RBNode(value)
+		node.left = self.nil
+		node.right = self.nil
+
+		while pointer != self.nil:
+			last_pointer = pointer
+			if pointer.value > node.value:
+				pointer = pointer.left
+			else:
+				pointer = pointer.right
+
+		node.parent = last_pointer
+		if last_pointer == None: # When the node is the root
+			self.root = node # Set the root of the tree as the node
+			node.red = False # Set the color as black
+		elif node.value > last_pointer.value: # When the node is greater than the pointer value
+			last_pointer.right = node # Set the right of the pointer as the node
+		else: # When the node is smaller than the pointer
+			last_pointer.left = node
+
+		if node.parent == None:
+			return
+
+		if node.parent.parent == None: # Catch when the parent is the root to skip fixing as not needed and impossible
+			return
+
+		self.fix_insert(node)
+
+	def fix_insert(self, new_node):
+		while new_node != self.root and new_node.parent.red:
+			if new_node.parent == new_node.parent.parent.right:
+				uncle = new_node.parent.parent.left
+				if uncle and uncle.red:
+					uncle.red = False
+					new_node.parent.red = False
+					new_node.parent.parent.red = True
+					new_node = new_node.parent.parent
+				else:
+					if new_node == new_node.parent.left:
+						new_node = new_node.parent
+						self.rotate_right(new_node)
+					new_node.parent.red = False
+					new_node.parent.parent.red = True
+					self.rotate_left(new_node.parent.parent)
+			else:
+				uncle = new_node.parent.parent.right
+				if uncle and uncle.red:
+					uncle.red = False
+					new_node.parent.red = False
+					new_node.parent.parent.red = True
+					new_node = new_node.parent.parent
+				else:
+					if new_node == new_node.parent.right:
+						new_node = new_node.parent
+						self.rotate_left(new_node)
+					new_node.parent.red = False
+					new_node.parent.parent.red = True
+					self.rotate_right(new_node.parent.parent)
+		self.root.red = False
+
+
+	def delete(self, value):
+		# Need to do this one!
+		return
+
+	def fix_delete(self, value):
+		# Need to do this one!
+		return
+
+	def rotate_left(self, x):
+		y = x.right
+		x.right = y.left
+		if y.left != self.root:
+			y.left.parent = x
+
+		y.parent = x.parent
+		if x.parent == None:
+			self.root = y
+		elif x == x.parent.left:
+			x.parent.left = y
+		else:
+			x.parent.right = y
+		y.left = x
+		x.parent = y
+
+	def rotate_right(self, x):
+		y = x.left
+		x.left = y.right
+		if y.right != self.root:
+			y.right.parent = x
+
+		y.parent = x.parent
+		if x.parent == None:
+			self.root = y
+		elif x == x.parent.right:
+			x.parent.right = y
+		else:
+			x.parent.left = y
+		y.right = x
+		x.parent = y
+
+class RBNode(Node):
+	def __init__(self, value = None):
+		self.parent = None
+		self.value = value
+		self.left = None
+		self.right = None
+		self.red = True
 
 # ------------------------ Heap Data Structure ------------------------ #
 # This data structure is used to easily find the minimum/maximum if
@@ -701,15 +829,6 @@ class MedianMaintainer:
 		else: # If the lower heap is bigger in size of the upper heap
 			return self.LH.find_max() # Grab max value in lower heap
 
-
-
-def load_assignment():
-	f = open('median.txt', 'r')
-	data = f.read().split('\n')
-	data.pop()
-	data = [int(datum) for datum in data]
-	return data
-
 # ----------------- Excess Functions ----------------- #
 
 def random_ip():
@@ -720,6 +839,12 @@ def random_ip():
 		if f_ind < 3:
 			IP += '.'
 	return IP
+
+def random_passwords(self, count = 100, min_length = 8, max_length = 50):
+	potential_values = string.ascii_letters + string.digits + string.punctuation
+	new_password = lambda length : ''.join([potential_values[ind] for ind in [random.randint(0, len(potential_values) - 1) for sample in range(length)]])
+	values = [new_password(random.randint(min_length, max_length)) for password_count in range(count)]
+	return values
 
 def find_primes(start = 1, end = 100):
 	primes = []
@@ -745,15 +870,6 @@ def to_bytes(string, encoding = 'utf-8'):
 
 def split(key):
 	return [char for char in key]
-
-
-def load_twosum_assignment(sort = True):
-	contents = open('2sum-prob.txt', 'r').read()
-	data = contents.split('\n')
-	data.pop()
-	data = [int(datum) for datum in data]
-	if sort == True: data.sort()
-	return data
 
 def assess_twosums_heaps(data = None, lower_bound = -10000, upper_bound = 10000):
 	# Working function to assess for pairs of numbers within a list that add up to t within a range
@@ -815,7 +931,7 @@ def assess_twosums_tree(data = None, lower_bound = -10000, upper_bound = 10000):
 	tree = BinaryTree(data) #
 	binarizing_time = (time.time() - start)
 
-	t_uht = UniversalHashTable(data = range(-10000, 10001))
+	t_uht = HashTable(data = range(-10000, 10001))
 	root = tree.root
 	smaller_branch = root.left
 	bigger_branch = root.left
@@ -827,5 +943,20 @@ def assess_twosums_tree(data = None, lower_bound = -10000, upper_bound = 10000):
 		elif t > upper_bound: # Grab a smaller branch
 			smaller_branch = smaller_branch.left
 		else:
+			return
 
-	return
+def load_median_test():
+	f = open('median.txt', 'r')
+	data = f.read().split('\n')
+	data.pop()
+	data = [int(datum) for datum in data]
+	return data
+
+
+def load_twosum_test(sort = True):
+	contents = open('2sum-prob.txt', 'r').read()
+	data = contents.split('\n')
+	data.pop()
+	data = [int(datum) for datum in data]
+	if sort == True: data.sort()
+	return data

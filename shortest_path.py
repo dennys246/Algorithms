@@ -56,12 +56,6 @@ class Pathly:
 		print(f"Shortest path found to be {distances[end]}")
 		return distances[end]
 
-	def dijkstra_algorithm_heap(self, graph, start, end): # Algorithm for finding shortest path in a directed graph with no negative edge lengths
-		print(f"Searching for shortest path between {start} and {end}")
-		distances
-		print(f"Shortest path found to be {distances[end]}")
-		return distances[end]
-
 	def generate_graph(self):
 		self.graph = {str(x):[[str(sample), random.randint(self.min_length, self.max_length) ] for sample in random.sample(range(1, self.vertice_count + 1), self.max_edges) if sample != x ] for x in range(1, self.vertice_count + 1)}
 
